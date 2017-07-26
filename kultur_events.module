@@ -1,0 +1,7 @@
+<?php
+/**
+ * @file
+ * Code for the Kultur Events List feature.
+ */
+
+include_once 'kultur_events.features.inc';
