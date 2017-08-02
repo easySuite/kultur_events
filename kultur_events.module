@@ -5,3 +5,142 @@
  */
 
 include_once 'kultur_events.features.inc';
+
+/**
+ * Implements hook_menu().
+ */
+function kultur_events_menu() {
+  $items = array();
+
+  $items['filter_categories/%'] = array(
+    'page callback' => '_update_categories_callback',
+    'page arguments' => array(1),
+    'access arguments' => array('access content'),
+    'delivery callback' => 'ajax_deliver',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function kultur_events_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'views_exposed_form' && $form_state['view']->name == 'kultur_events' && $form_state['view']->current_display == 'kultur_event_list') {
+    $form['og_group_ref_target_id_entityreference_filter']['#attached'] = array(
+      'js' => array(
+        drupal_get_path('module', 'kultur_events') . '/js/kultur_events.js',
+      ),
+    );
+
+    $form['field_ding_event_category_tid']['#prefix'] = '<div id="filter_categories">';
+    $form['field_ding_event_category_tid']['#suffix'] = '</div>';
+  }
+}
+
+/**
+ * Categories filtration callback.
+ */
+function _update_categories_callback($lib_id) {
+  // Preparing parameters from request.
+  if (strpos($lib_id, ',')) {
+    $libs = explode(',', $lib_id);
+  }
+  else {
+    $libs = array($lib_id);
+  }
+
+  $commands = array();
+  $categories = array();
+  $raw_categories = array();
+  $final = array();
+
+  if (is_array($libs) && $lib_id != 'all') {
+    foreach ($libs as $lib) {
+      // Fetching node ids.
+      $etids = db_select('og_membership', 'ogm')
+        ->fields('ogm', array('etid'))
+        ->condition('entity_type', 'node', '=')
+        ->condition('field_name', 'og_group_ref', '=')
+        ->condition('gid', $lib, '=')
+        ->execute();
+
+      $nodes = $etids->fetchAll();
+
+      foreach ($nodes as $node) {
+        $fetch_event_date = db_select('field_data_field_ding_event_date', 'fed')
+          ->fields('fed', array('field_ding_event_date_value'))
+          ->condition('entity_id', $node->etid, '=')
+          ->execute()
+          ->fetchField();
+
+        $current_date = new DateTime();
+        $now = $current_date->format('Y-m-d H:i:s');
+
+        // Check active events.
+        if ($fetch_event_date >= $now) {
+          $query = db_select('field_data_field_ding_event_category', 'evcat')
+            ->fields('evcat', array('field_ding_event_category_tid'))
+            ->condition('entity_id', $node->etid, '=')
+            ->execute();
+          $cats = $query->fetchAllKeyed();
+          $categories[] = array_keys($cats);
+        }
+      }
+
+      $nodes_categories = array_values($categories);
+      foreach ($nodes_categories as $nodes_category) {
+        $raw_categories[] = $nodes_category[0];
+      }
+
+      // Getting non-empty and unique taxonomy terms tids.
+      $raw_categories = array_unique(array_filter($raw_categories));
+      foreach ($raw_categories as $raw_category) {
+        $final[$raw_category] = $raw_category;
+      }
+
+      foreach ($final as $item) {
+        $term = taxonomy_term_load($item);
+
+        if (!empty($term)) {
+          $options[$term->tid] = $term->name;
+        }
+      }
+    }
+  }
+  else {
+    $name = 'event_category';
+    $vocabulary = taxonomy_vocabulary_machine_name_load($name);
+    $tree = taxonomy_get_tree($vocabulary->vid);
+    foreach ($tree as $term) {
+      $options[$term->tid] = $term->name;
+    }
+  }
+
+  // Rendering filters form.
+  if (!empty($options)) {
+    $form = array(
+      '#form_id' => 'categories_filter',
+    );
+    $form_state = array('values' => array());
+
+    $form['field_ding_event_category_tid'] = array(
+      '#type' => 'checkboxes',
+      '#options' => $options,
+    );
+
+    $form_build = form_builder('kultunaut_filters', $form, $form_state);
+    $rendered_form = drupal_render($form_build);
+
+    $block = array();
+    $block['subject'] = 'Categories';
+    $block['content'] = $rendered_form;
+
+    $commands[] = ajax_command_replace(
+      '#filter_categories',
+      render($rendered_form)
+    );
+  }
+
+  return array('#type' => 'ajax', '#commands' => $commands);
+}
