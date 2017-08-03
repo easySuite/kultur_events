@@ -14,4 +14,4 @@ features[ctools][] = views:views_default:3.0
 features[features_api][] = api:2
 features[page_manager_pages][] = ding_events_kultur_en_
 features[views_view][] = kultur_events
-mtime = 1501598425
+mtime = 1501745958

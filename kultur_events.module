@@ -1,4 +1,5 @@
 <?php
+
 /**
  * @file
  * Code for the Kultur Events List feature.
@@ -143,4 +144,76 @@ function _update_categories_callback($lib_id) {
   }
 
   return array('#type' => 'ajax', '#commands' => $commands);
+}
+
+
+function kultur_events_views_query_alter(&$view, &$query) {
+  if ($view->name == 'kultur_events' && $view->current_display == 'kultur_event_list_same_date') {
+    $nid = arg(1);
+    $node = node_load($nid);
+    $current_node_date_value = $node->field_ding_event_date['und'][0]['value'];
+    $date_object = date_create_from_format('Y-m-d H:i:s', $current_node_date_value);
+    $current_node_date = $date_object->format('Y-m-d');
+
+    if ($current_node_date >= date('Y-m-d')) {
+      $queried_date = $current_node_date;
+    }
+    else {
+      $queried_date = date('Y-m-d');
+    }
+
+    $condition = array(
+      'field' => "DATE_FORMAT(ADDTIME(field_data_field_ding_event_date.field_ding_event_date_value, SEC_TO_TIME(7200)), '%Y-%m-%d') <= :node_between_date_filter AND DATE_FORMAT(ADDTIME(field_data_field_ding_event_date.field_ding_event_date_value2, SEC_TO_TIME(7200)), '%Y-%m-%d') >= :node_between_date_filter",
+      'value' => array(
+        ':node_between_date_filter' => $queried_date,
+      ),
+      'operator' => 'formula',
+    );
+
+    $query->where[1]['conditions'][] = $condition;
+  }
+}
+
+/**
+ * Implements hook_preprocess_HOOK().
+ */
+function kultur_events_preprocess_views_view(&$variables) {
+  if ($variables['view']->current_display == 'kultur_event_list_same_date') {
+    $nid = array_shift($variables['view']->args);
+    $entity = node_load($nid);
+    $date_field = field_get_items('node', $entity, 'field_ding_event_date');
+
+    $date = new DateObject(
+      $date_field[0]['value'],
+      $date_field[0]['timezone_db'],
+      date_type_format($date_field[0]['date_type'])
+    );
+
+    $current_date = new DateTime();
+
+    $timestamp = $date->format(DATE_FORMAT_UNIX);
+    $node_date = $date->format('Y-m-d');
+    $today = $current_date->format('Y-m-d');
+
+    if ($node_date <= $today) {
+      $timestamp = $current_date->getTimestamp();
+    }
+
+    $options = array(
+      '#theme' => 'calendar_header',
+      '#date' => array(
+        'day' => format_date($timestamp, 'custom', 'j'),
+        'month' => format_date($timestamp, 'custom', 'F'),
+        'weekday' => format_date($timestamp, 'custom', 'l'),
+        'year' => format_date($timestamp, 'custom', 'Y'),
+      ),
+      '#timestamp' => $timestamp,
+      '#timezone' => '',
+      '#today' => date('j.F.l') == date('j.F.l', $timestamp) ? TRUE : FALSE,
+    );
+
+    $variables['title'] = '<div class="event-list-leaf">';
+    $variables['title'] .= theme('calendar_header', $options);
+    $variables['title'] .= '</div>';
+  }
 }
