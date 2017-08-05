@@ -262,3 +262,19 @@ function kultur_events_preprocess_views_view(&$variables) {
     }
   }
 }
+
+/**
+ * Implements hook_preprocess_HOOK().
+ */
+function kultur_events_preprocess_calendar_header(&$variables) {
+  $timestamp = $variables['timestamp'];
+
+  $variables['date'] = array(
+    'day' => format_date($timestamp, 'custom', 'j'),
+    'month' => format_date($timestamp, 'custom', 'M'),
+    'weekday' => format_date($timestamp, 'custom', 'D'),
+    'year' => format_date($timestamp, 'custom', 'Y'),
+  );
+
+  $variables['today'] = date('j.M.D') == date('j.M.D', $timestamp) ? TRUE : FALSE;
+}
