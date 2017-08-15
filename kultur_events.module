@@ -13,9 +13,15 @@ include_once 'kultur_events.features.inc';
 function kultur_events_menu() {
   $items = array();
 
-  $items['filter_categories/%'] = array(
+  $items['filter_categories/%/%'] = array(
     'page callback' => '_update_categories_callback',
-    'page arguments' => array(1),
+    'page arguments' => array(1, 2),
+    'access arguments' => array('access content'),
+    'delivery callback' => 'ajax_deliver',
+  );
+  $items['filter_libraries/%/%'] = array(
+    'page callback' => '_update_libraries_callback',
+    'page arguments' => array(1, 2),
     'access arguments' => array('access content'),
     'delivery callback' => 'ajax_deliver',
   );
@@ -34,6 +40,8 @@ function kultur_events_form_alter(&$form, &$form_state, $form_id) {
       ),
     );
 
+    $form['og_group_ref_target_id_entityreference_filter']['#prefix'] = '<div id="filter_libraries">';
+    $form['og_group_ref_target_id_entityreference_filter']['#suffix'] = '</div>';
     $form['field_ding_event_category_tid']['#prefix'] = '<div id="filter_categories">';
     $form['field_ding_event_category_tid']['#suffix'] = '</div>';
   }
@@ -42,7 +50,7 @@ function kultur_events_form_alter(&$form, &$form_state, $form_id) {
 /**
  * Categories filtration callback.
  */
-function _update_categories_callback($lib_id) {
+function _update_categories_callback($lib_id, $defaults) {
   // Preparing parameters from request.
   if (strpos($lib_id, ',')) {
     $libs = explode(',', $lib_id);
@@ -128,14 +136,11 @@ function _update_categories_callback($lib_id) {
     $form['field_ding_event_category_tid'] = array(
       '#type' => 'checkboxes',
       '#options' => $options,
+      '#default_value' => explode(',', $defaults),
     );
 
     $form_build = form_builder('kultunaut_filters', $form, $form_state);
     $rendered_form = drupal_render($form_build);
-
-    $block = array();
-    $block['subject'] = 'Categories';
-    $block['content'] = $rendered_form;
 
     $commands[] = ajax_command_replace(
       '#filter_categories',
@@ -145,6 +150,52 @@ function _update_categories_callback($lib_id) {
 
   return array('#type' => 'ajax', '#commands' => $commands);
 }
+
+/**
+ * Libraries filtration callback.
+ */
+function _update_libraries_callback($categories, $defaults) {
+  if ($categories != 'all') {
+    $query = db_select('og_membership', 'og')
+      ->distinct();
+    $query->join('field_data_field_ding_event_category', 'category', "category.field_ding_event_category_tid IN ($categories)");
+    $query->join('node', 'n', 'og.gid = n.nid AND n.type = \'ding_library\'');
+    $query->addField('og', 'gid', 'lid');
+    $query->addField('n', 'title', 'title');
+    $query->where('category.entity_id = og.etid');
+  }
+  else {
+    $query = db_select('node', 'n');
+    $query->fields('n', array('nid', 'title'));
+    $query->condition('n.type', 'ding_library');
+  }
+  $options = $query->execute()->fetchAllKeyed(0, 1);
+
+  $commands = array();
+  if (!empty($options)) {
+    $form = array(
+      '#form_id' => 'libraries_filter',
+    );
+    $form_state = array('values' => array());
+
+    $form['og_group_ref_target_id_entityreference_filter'] = array(
+      '#type' => 'checkboxes',
+      '#options' => $options,
+      '#default_value' => $defaults,
+    );
+
+    $form_build = form_builder('kultunaut_libraries_filters', $form, $form_state);
+    $rendered_form = drupal_render($form_build);
+
+    $commands[] = ajax_command_replace(
+      '#filter_libraries',
+      render($rendered_form)
+    );
+  }
+
+  return array('#type' => 'ajax', '#commands' => $commands);
+}
+
 
 /**
  * Implements hook_views_query_alter().
