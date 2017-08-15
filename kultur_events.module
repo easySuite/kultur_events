@@ -179,6 +179,26 @@ function kultur_events_views_query_alter(&$view, &$query) {
     // Condition for fetching events with same date as parent node.
     $query->where[1]['conditions'][] = $date_condition;
   }
+  elseif ($view->name == 'kultur_events' && $view->current_display == 'kultur_event_list') {
+    $date = arg(1);
+    $operand = '=';
+    if (!$date) {
+      $operand = '>=';
+      $date = date('Y-m-d');
+    }
+
+    $alias = $query->add_table('field_data_field_ding_event_date');
+    $date_condition = array(
+      'field' => "DATE_FORMAT(ADDTIME($alias.field_ding_event_date_value, SEC_TO_TIME(10800)), '%Y-%m-%d') $operand :field_data_field_ding_event_date_field_ding_event_date_value",
+      'value' => array(
+        ':field_data_field_ding_event_date_field_ding_event_date_value' => $date,
+      ),
+      'operator' => 'formula',
+    );
+
+    // Condition for fetching events with same date as parent node.
+    $query->where[1]['conditions'][] = $date_condition;
+  }
 }
 
 /**
