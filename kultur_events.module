@@ -13,18 +13,29 @@ include_once 'kultur_events.features.inc';
 function kultur_events_menu() {
   $items = array();
 
-  $items['filter_categories/%/%'] = array(
+  $items['filter_categories'] = array(
     'page callback' => '_update_categories_callback',
-    'page arguments' => array(1, 2),
     'access arguments' => array('access content'),
     'delivery callback' => 'ajax_deliver',
   );
-  $items['filter_libraries/%/%'] = array(
+  $items['filter_categories/%'] = array(
+      'page arguments' => array(1),
+    ) + $items['filter_categories'];
+  $items['filter_categories/%/%'] = array(
+    'page arguments' => array(1, 2),
+  ) + $items['filter_categories'];
+
+  $items['filter_libraries'] = array(
     'page callback' => '_update_libraries_callback',
-    'page arguments' => array(1, 2),
     'access arguments' => array('access content'),
     'delivery callback' => 'ajax_deliver',
   );
+  $items['filter_libraries/%'] = array(
+    'page arguments' => array(1),
+  ) + $items['filter_libraries'];
+  $items['filter_libraries/%/%'] = array(
+    'page arguments' => array(1, 2),
+  ) + $items['filter_libraries'];
 
   return $items;
 }
@@ -139,7 +150,8 @@ function _update_categories_callback($lib_id, $defaults) {
       '#default_value' => explode(',', $defaults),
     );
 
-    $form_build = form_builder('kultunaut_filters', $form, $form_state);
+    // TODO: This form should be similar to the one generated from views BEF.
+    $form_build = form_builder('kultunaut_categories_filters', $form, $form_state);
     $rendered_form = drupal_render($form_build);
 
     $commands[] = ajax_command_replace(
@@ -155,6 +167,13 @@ function _update_categories_callback($lib_id, $defaults) {
  * Libraries filtration callback.
  */
 function _update_libraries_callback($categories, $defaults) {
+  $domains = domain_domains();
+  foreach ($domains as $domain) {
+    if (strpos($domain['machine_name'], 'kultur') !== FALSE) {
+      $did = $domain['domain_id'];
+    }
+  }
+
   if ($categories != 'all') {
     $query = db_select('og_membership', 'og')
       ->distinct();
@@ -169,6 +188,11 @@ function _update_libraries_callback($categories, $defaults) {
     $query->fields('n', array('nid', 'title'));
     $query->condition('n.type', 'ding_library');
   }
+  if (!empty($did)) {
+    $query->join('domain_access', 'da','n.nid = da.nid');
+    $query->condition('da.gid', $did);
+  }
+  $query->condition('n.status', 1);
   $options = $query->execute()->fetchAllKeyed(0, 1);
 
   $commands = array();
@@ -181,9 +205,10 @@ function _update_libraries_callback($categories, $defaults) {
     $form['og_group_ref_target_id_entityreference_filter'] = array(
       '#type' => 'checkboxes',
       '#options' => $options,
-      '#default_value' => $defaults,
+      '#default_value' => explode(',', $defaults),
     );
 
+    // TODO: This form should be similar to the one generated from views BEF.
     $form_build = form_builder('kultunaut_libraries_filters', $form, $form_state);
     $rendered_form = drupal_render($form_build);
 

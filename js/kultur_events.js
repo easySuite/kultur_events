@@ -33,10 +33,13 @@
                 }
               });
             }
-
+            var path = 'filter_categories' + params;
+            if (default_categories.length > 0) {
+              path += '/' + default_categories.join();
+            }
             $.ajax({
               type: 'GET',
-              url: 'filter_categories' + params + '/' + default_categories.join(),
+              url: path,
               success: function (data) {
                 if (data.length > 1) {
                   $('#filter_categories').html(data[1].data);
@@ -51,9 +54,9 @@
       }
 
       // Filter libraries based on the selected categories.
-      $('#edit-field-ding-event-category-tid-wrapper', context).once(function(){
-        var items = $(this).find(':checkbox');
-        $.each(items, function(i, val) {
+      var categories = $('#edit-field-ding-event-category-tid-wrapper', context).find(':checkbox');
+      if (categories.length > 0) {
+        $.each(categories, function(i, val) {
           $(val).click(function() {
             var status = $(val).attr('checked');
 
@@ -69,9 +72,23 @@
                 params = '/all';
               }
             }
+
+            var default_libraries = [];
+            var libraries = $('#edit-og-group-ref-target-id-entityreference-filter-wrapper', context).find(':checkbox');
+            if (libraries.length > 0) {
+              $.each(libraries, function (i, val) {
+                if ($(val).attr('checked')) {
+                  default_libraries.push($(val).val());
+                }
+              });
+            }
+            var path = 'filter_libraries' + params;
+            if (default_libraries.length > 0) {
+              path += '/' + default_libraries.join();
+            }
             $.ajax({
               type: 'GET',
-              url: 'filter_libraries' + params,
+              url: path,
               success: function (data) {
                 if (data.length > 1) {
                   $('#filter_libraries').html(data[1].data);
@@ -83,7 +100,7 @@
             });
           });
         });
-      });
+      }
     }
   };
 
