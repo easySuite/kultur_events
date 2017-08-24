@@ -304,11 +304,23 @@ function kultur_events_preprocess_views_view(&$variables) {
     ->execute()
     ->fetchField();
 
+  // Hidding "Related events" view on Kulturoen node.
+  if ($variables['view']->current_display == 'ding_event_list_same_tag') {
+    $nid = array_pop($variables['view']->args);
+    $entity = node_load($nid);
+    $current_node_library = field_get_items('node', $entity, 'og_group_ref');
+
+    if ($kulturoen_library == $current_node_library[0]['target_id']) {
+      unset($variables['view']->result);
+    }
+  }
+
+  // Display or hide "Same date".
   if ($variables['view']->current_display == 'kultur_event_list_same_date') {
     $nid = array_pop($variables['view']->args);
     $entity = node_load($nid);
-    $date_field = field_get_items('node', $entity, 'field_ding_event_date');
     $current_node_library = field_get_items('node', $entity, 'og_group_ref');
+    $date_field = field_get_items('node', $entity, 'field_ding_event_date');
 
     $date = new DateObject(
       $date_field[0]['value'],
@@ -348,6 +360,7 @@ function kultur_events_preprocess_views_view(&$variables) {
     }
   }
 
+  // Display or hide "Same category".
   if ($variables['view']->current_display == 'kultur_event_list_same_category') {
     $nid = array_pop($variables['view']->args);
     $entity = node_load($nid);
