@@ -298,28 +298,22 @@ function kultur_events_views_pre_execute(&$view) {
  * @TODO: Make this processing more gracefully.
  */
 function kultur_events_preprocess_views_view(&$variables) {
-  $kulturoen_library = db_select('node', 'n')
-    ->fields('n', array('nid'))
-    ->condition('title', 'KulturØen', '=')
-    ->execute()
-    ->fetchField();
+  $active_domain = FALSE;
+
+  $current_domain = domain_get_domain();
+  if ($current_domain['machine_name'] == 'kulturoen_dk') {
+    $active_domain = TRUE;
+  }
 
   // Hidding "Related events" view on Kulturoen node.
-  if ($variables['view']->current_display == 'ding_event_list_same_tag') {
-    $nid = array_pop($variables['view']->args);
-    $entity = node_load($nid);
-    $current_node_library = field_get_items('node', $entity, 'og_group_ref');
-
-    if ($kulturoen_library == $current_node_library[0]['target_id']) {
-      unset($variables['view']->result);
-    }
+  if ($variables['view']->current_display == 'ding_event_list_same_tag' && $active_domain) {
+    unset($variables['view']->result);
   }
 
   // Display or hide "Same date".
   if ($variables['view']->current_display == 'kultur_event_list_same_date') {
     $nid = array_pop($variables['view']->args);
     $entity = node_load($nid);
-    $current_node_library = field_get_items('node', $entity, 'og_group_ref');
     $date_field = field_get_items('node', $entity, 'field_ding_event_date');
 
     $date = new DateObject(
@@ -355,20 +349,14 @@ function kultur_events_preprocess_views_view(&$variables) {
     $variables['title'] .= theme('calendar_header', $options);
     $variables['title'] .= '</div>';
 
-    if ($kulturoen_library != $current_node_library[0]['target_id']) {
+    if (!$active_domain) {
       unset($variables['view']->result);
     }
   }
 
   // Display or hide "Same category".
-  if ($variables['view']->current_display == 'kultur_event_list_same_category') {
-    $nid = array_pop($variables['view']->args);
-    $entity = node_load($nid);
-    $current_node_library = field_get_items('node', $entity, 'og_group_ref');
-
-    if ($kulturoen_library != $current_node_library[0]['target_id']) {
-      unset($variables['view']->result);
-    }
+  if ($variables['view']->current_display == 'kultur_event_list_same_category' && !$active_domain) {
+    unset($variables['view']->result);
   }
 }
 
