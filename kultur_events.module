@@ -50,6 +50,7 @@ function kultur_events_form_alter(&$form, &$form_state, $form_id) {
         drupal_get_path('module', 'kultur_events') . '/js/kultur_events.js',
       ),
     );
+    $form['og_group_ref_target_id_entityreference_filter']['#options']['other'] = t('Other actors');
 
     $form['og_group_ref_target_id_entityreference_filter']['#prefix'] = '<div id="filter_libraries">';
     $form['og_group_ref_target_id_entityreference_filter']['#suffix'] = '</div>';
@@ -274,6 +275,21 @@ function kultur_events_views_query_alter(&$view, &$query) {
 
     // Condition for fetching events with same date as parent node.
     $query->where[1]['conditions'][] = $date_condition;
+
+    // Filter events by other libraries.
+    if ($_GET['og_group_ref_target_id_entityreference_filter'][0] == 'other') {
+      $other_queue = nodequeue_load_queue_by_name('other_kultur_libraries');
+      $other_sub_queue = nodequeue_load_subqueues_by_queue($other_queue->qid);
+      $other_sub_queue = reset($other_sub_queue);
+      $other_libraries = _kultur_calendar_get_libraries($other_sub_queue);
+
+      $alias = $query->add_table('og_membership');
+      $query->where[1]['conditions'][] = array(
+        'field' => "$alias.gid",
+        'operator' => 'IN',
+        'value' => $other_libraries
+      );
+    }
   }
 }
 
