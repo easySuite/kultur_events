@@ -25,6 +25,12 @@ function kultur_events_menu() {
     'page arguments' => array(1, 2),
   ) + $items['filter_categories'];
 
+  $items['arrangementer-liste/filters/load'] = array(
+    'page callback' => '_load_libraries_filter',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+
   $items['filter_libraries'] = array(
     'page callback' => '_update_libraries_callback',
     'access arguments' => array('access content'),
@@ -38,6 +44,72 @@ function kultur_events_menu() {
   ) + $items['filter_libraries'];
 
   return $items;
+}
+
+/**
+ * Implements hook_ctools_plugin_directory().
+ */
+function kultur_events_ctools_plugin_directory($module, $plugin) {
+  // We'll be nice and limit scandir() calls.
+  if ($module == 'ctools' && $plugin == 'content_types') {
+    return 'plugins/content_types';
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function kultur_events_theme($existing, $type, $theme, $path) {
+  $hooks['kultur_events_filters'] = array(
+    'variables' => array(),
+    'template' => 'kultur-events-filters',
+    'path' => $path . '/templates/panels',
+  );
+
+  return $hooks;
+}
+
+function _load_libraries_filter() {
+  $domains = domain_domains();
+  foreach ($domains as $domain) {
+    if (strpos($domain['machine_name'], 'kultur') !== FALSE) {
+      $did = $domain['domain_id'];
+    }
+  }
+
+  $query = db_select('node', 'n');
+  $query->fields('n', array('nid', 'title'));
+  $query->condition('n.type', 'ding_library');
+
+  if (!empty($did)) {
+    $query->join('domain_access', 'da','n.nid = da.nid');
+    $query->condition('da.gid', $did);
+  }
+  $query->condition('n.status', 1);
+  $options = $query->execute()->fetchAllKeyed(0, 1);
+
+  $libraries = '';
+  if (!empty($options)) {
+    $form = array(
+      '#form_id' => 'filter_libraries',
+    );
+    $form_state = array('values' => array());
+
+    $form['filter-libraries'] = array(
+      '#type' => 'checkboxes',
+      '#options' => $options,
+//      '#default_value' => explode(',', $defaults),
+    );
+
+    $form_build = form_builder('filter_libraries', $form, $form_state);
+    $libraries = drupal_render($form_build);
+  }
+
+  $categories = 'categories';
+
+  $content = theme('kultur_events_filters', array('libraries' => $libraries, 'categories' => $categories));
+
+  drupal_json_output($content);
 }
 
 /**
