@@ -11,31 +11,19 @@ include_once 'kultur_events.features.inc';
  * Implements hook_menu().
  */
 function kultur_events_menu() {
-  $items = array();
+  $items = [];
 
-  $items['filter_categories'] = array(
-    'page callback' => '_update_categories_callback',
-    'access arguments' => array('access content'),
+  $items['kultur/filter'] = [
+    'page callback' => 'kultur_events_update_filter_callback',
+    'access arguments' => ['access content'],
     'delivery callback' => 'ajax_deliver',
-  );
-  $items['filter_categories/%'] = array(
-      'page arguments' => array(1),
-    ) + $items['filter_categories'];
-  $items['filter_categories/%/%'] = array(
-    'page arguments' => array(1, 2),
-  ) + $items['filter_categories'];
-
-  $items['filter_libraries'] = array(
-    'page callback' => '_update_libraries_callback',
-    'access arguments' => array('access content'),
-    'delivery callback' => 'ajax_deliver',
-  );
-  $items['filter_libraries/%'] = array(
-    'page arguments' => array(1),
-  ) + $items['filter_libraries'];
-  $items['filter_libraries/%/%'] = array(
-    'page arguments' => array(1, 2),
-  ) + $items['filter_libraries'];
+  ];
+  $items['kultur/filter/%'] = [
+      'page arguments' => [2],
+    ] + $items['kultur/filter'];
+  $items['kultur/filter/%/%'] = [
+      'page arguments' => [2, 3],
+    ] + $items['kultur/filter'];
 
   return $items;
 }
@@ -45,11 +33,11 @@ function kultur_events_menu() {
  */
 function kultur_events_form_alter(&$form, &$form_state, $form_id) {
   if ($form_id == 'views_exposed_form' && $form_state['view']->name == 'kultur_events' && $form_state['view']->current_display == 'kultur_event_list') {
-    $form['og_group_ref_target_id_entityreference_filter']['#attached'] = array(
-      'js' => array(
+    $form['og_group_ref_target_id_entityreference_filter']['#attached'] = [
+      'js' => [
         drupal_get_path('module', 'kultur_events') . '/js/kultur_events.js',
-      ),
-    );
+      ],
+    ];
     $form['og_group_ref_target_id_entityreference_filter']['#options']['other'] = t('Other actors');
 
     $form['og_group_ref_target_id_entityreference_filter']['#prefix'] = '<div id="filter_libraries">';
@@ -60,76 +48,27 @@ function kultur_events_form_alter(&$form, &$form_state, $form_id) {
 }
 
 /**
- * Categories filtration callback.
+ * Update filters based on the input form url.
+ *
+ * There can be 4 different situations:
+ *   - all/all
+ *   - X/all
+ *   - all/X
+ *   - X/X
+ * Where X can be category/library id, concatenated  ids.
+ * and without other identifier.
+ *
+ * @param string $lib_id
+ *   Library ID.
+ * @param string $cat_id
+ *   Category ID.
+ *
+ * @return array
+ *   AJAX commands.
  */
-function _update_categories_callback($lib_id, $defaults) {
-  // Preparing parameters from request.
-  if (strpos($lib_id, ',')) {
-    $libs = explode(',', $lib_id);
-  }
-  else {
-    $libs = array($lib_id);
-  }
-
-  $commands = array();
-  $categories = array();
-  $raw_categories = array();
-  $final = array();
-
-  if (is_array($libs) && $lib_id != 'all') {
-    foreach ($libs as $lib) {
-      // Fetching node ids.
-      $etids = db_select('og_membership', 'ogm')
-        ->fields('ogm', array('etid'))
-        ->condition('entity_type', 'node', '=')
-        ->condition('field_name', 'og_group_ref', '=')
-        ->condition('gid', $lib, '=')
-        ->execute();
-
-      $nodes = $etids->fetchAll();
-
-      foreach ($nodes as $node) {
-        $fetch_event_date = db_select('field_data_field_ding_event_date', 'fed')
-          ->fields('fed', array('field_ding_event_date_value'))
-          ->condition('entity_id', $node->etid, '=')
-          ->execute()
-          ->fetchField();
-
-        $current_date = new DateTime();
-        $now = $current_date->format('Y-m-d H:i:s');
-
-        // Check active events.
-        if ($fetch_event_date >= $now) {
-          $query = db_select('field_data_field_ding_event_category', 'evcat')
-            ->fields('evcat', array('field_ding_event_category_tid'))
-            ->condition('entity_id', $node->etid, '=')
-            ->execute();
-          $cats = $query->fetchAllKeyed();
-          $categories[] = array_keys($cats);
-        }
-      }
-
-      $nodes_categories = array_values($categories);
-      foreach ($nodes_categories as $nodes_category) {
-        $raw_categories[] = $nodes_category[0];
-      }
-
-      // Getting non-empty and unique taxonomy terms tids.
-      $raw_categories = array_unique(array_filter($raw_categories));
-      foreach ($raw_categories as $raw_category) {
-        $final[$raw_category] = $raw_category;
-      }
-
-      foreach ($final as $item) {
-        $term = taxonomy_term_load($item);
-
-        if (!empty($term)) {
-          $options[$term->tid] = $term->name;
-        }
-      }
-    }
-  }
-  else {
+function kultur_events_update_filter_callback($lib_id, $cat_id) {
+  $commands = [];
+  if ($lib_id == 'all') {
     $name = 'event_category';
     $vocabulary = taxonomy_vocabulary_machine_name_load($name);
     $tree = taxonomy_get_tree($vocabulary->vid);
@@ -137,91 +76,153 @@ function _update_categories_callback($lib_id, $defaults) {
       $options[$term->tid] = $term->name;
     }
   }
+  else {
+    $libs = explode(',', $lib_id);
 
-  // Rendering filters form.
+    if (strpos($lib_id, 'other') !== FALSE) {
+      $other_queue = nodequeue_load_queue_by_name('other_kultur_libraries');
+      $other_sub_queue = nodequeue_load_subqueues_by_queue($other_queue->qid);
+      $other_sub_queue = reset($other_sub_queue);
+      $other_libs = _kultur_calendar_get_libraries($other_sub_queue);
+      $libs = array_merge($libs, $other_libs);
+    }
+    $options = kultur_event_load_related_categories($libs);
+  }
+
   if (!empty($options)) {
-    $form = array(
-      '#form_id' => 'categories_filter',
-    );
-    $form_state = array('values' => array());
-
-    $form['field_ding_event_category_tid'] = array(
+    $form = [
+      '#form_id' => 'filter_categories',
+    ];
+    $form['field_ding_event_category_tid'] = [
       '#type' => 'checkboxes',
       '#options' => $options,
-      '#default_value' => explode(',', $defaults),
-    );
+      '#default_value' => explode(',', $cat_id),
+    ];
 
-    // TODO: This form should be similar to the one generated from views BEF.
+    $form_state = ['values' => []];
     $form_build = form_builder('kultunaut_categories_filters', $form, $form_state);
     $rendered_form = drupal_render($form_build);
 
-    $commands[] = ajax_command_replace(
-      '#filter_categories',
-      render($rendered_form)
+    $commands[] = ajax_command_replace('#filter_categories', render($rendered_form)
     );
   }
 
-  return array('#type' => 'ajax', '#commands' => $commands);
-}
+  if ($cat_id == 'all') {
+    $query = db_select('node', 'n');
+    $query->fields('n', ['nid', 'title']);
+    $query->condition('n.type', 'ding_library');
+  }
+  else {
+    $query = db_select('og_membership', 'og')->distinct();
+    $query->join('field_data_field_ding_event_category', 'category', "category.field_ding_event_category_tid IN ($cat_id)");
+    $query->join('node', 'n', 'og.gid = n.nid AND n.type = \'ding_library\'');
+    $query->addField('og', 'gid', 'lid');
+    $query->addField('n', 'title', 'title');
+    $query->where('category.entity_id = og.etid');
+  }
 
-/**
- * Libraries filtration callback.
- */
-function _update_libraries_callback($categories, $defaults) {
   $domains = domain_domains();
   foreach ($domains as $domain) {
     if (strpos($domain['machine_name'], 'kultur') !== FALSE) {
       $did = $domain['domain_id'];
     }
   }
-
-  if ($categories != 'all') {
-    $query = db_select('og_membership', 'og')
-      ->distinct();
-    $query->join('field_data_field_ding_event_category', 'category', "category.field_ding_event_category_tid IN ($categories)");
-    $query->join('node', 'n', 'og.gid = n.nid AND n.type = \'ding_library\'');
-    $query->addField('og', 'gid', 'lid');
-    $query->addField('n', 'title', 'title');
-    $query->where('category.entity_id = og.etid');
-  }
-  else {
-    $query = db_select('node', 'n');
-    $query->fields('n', array('nid', 'title'));
-    $query->condition('n.type', 'ding_library');
-  }
   if (!empty($did)) {
-    $query->join('domain_access', 'da','n.nid = da.nid');
+    $query->join('domain_access', 'da', 'n.nid = da.nid');
     $query->condition('da.gid', $did);
   }
   $query->condition('n.status', 1);
   $options = $query->execute()->fetchAllKeyed(0, 1);
 
-  $commands = array();
   if (!empty($options)) {
-    $form = array(
-      '#form_id' => 'libraries_filter',
-    );
-    $form_state = array('values' => array());
-
-    $form['og_group_ref_target_id_entityreference_filter'] = array(
+    $form = [
+      '#form_id' => 'filter_libraries',
+    ];
+    $form['og_group_ref_target_id_entityreference_filter'] = [
       '#type' => 'checkboxes',
       '#options' => $options,
-      '#default_value' => explode(',', $defaults),
-    );
+      '#default_value' => explode(',', $lib_id),
+    ];
 
-    // TODO: This form should be similar to the one generated from views BEF.
+    $form_state = ['values' => []];
     $form_build = form_builder('kultunaut_libraries_filters', $form, $form_state);
     $rendered_form = drupal_render($form_build);
 
-    $commands[] = ajax_command_replace(
-      '#filter_libraries',
-      render($rendered_form)
+    $commands[] = ajax_command_replace('#filter_libraries', render($rendered_form)
     );
   }
 
-  return array('#type' => 'ajax', '#commands' => $commands);
+  return ['#type' => 'ajax', '#commands' => $commands];
 }
 
+/**
+ * Load related categories to the set of libraries.
+ *
+ * @param array $libs
+ *   Library ids.
+ *
+ * @return array
+ *   Set of categories with the form: category id => term name.
+ */
+function kultur_event_load_related_categories($libs) {
+  $options = [];
+  $categories = [];
+  $raw_categories = [];
+  $final = [];
+  foreach ($libs as $lib) {
+    // Fetching node ids.
+    $etids = db_select('og_membership', 'ogm')
+      ->fields('ogm', ['etid'])
+      ->condition('entity_type', 'node', '=')
+      ->condition('field_name', 'og_group_ref', '=')
+      ->condition('gid', $lib, '=')
+      ->execute();
+
+    $nodes = $etids->fetchAll();
+
+    foreach ($nodes as $node) {
+      $fetch_event_date = db_select('field_data_field_ding_event_date', 'fed')
+        ->fields('fed', ['field_ding_event_date_value'])
+        ->condition('entity_id', $node->etid, '=')
+        ->execute()
+        ->fetchField();
+
+      $current_date = new DateTime();
+      $now = $current_date->format('Y-m-d H:i:s');
+
+      // Check active events.
+      if ($fetch_event_date >= $now) {
+        $query = db_select('field_data_field_ding_event_category', 'evcat')
+          ->fields('evcat', ['field_ding_event_category_tid'])
+          ->condition('entity_id', $node->etid, '=')
+          ->execute();
+        $cats = $query->fetchAllKeyed();
+        $categories[] = array_keys($cats);
+      }
+    }
+
+    $nodes_categories = array_values($categories);
+    foreach ($nodes_categories as $nodes_category) {
+      $raw_categories[] = $nodes_category[0];
+    }
+
+    // Getting non-empty and unique taxonomy terms tids.
+    $raw_categories = array_unique(array_filter($raw_categories));
+    foreach ($raw_categories as $raw_category) {
+      $final[$raw_category] = $raw_category;
+    }
+
+    foreach ($final as $item) {
+      $term = taxonomy_term_load($item);
+
+      if (!empty($term)) {
+        $options[$term->tid] = $term->name;
+      }
+    }
+  }
+
+  return $options;
+}
 
 /**
  * Implements hook_views_query_alter().
@@ -232,9 +233,7 @@ function kultur_events_views_query_alter(&$view, &$query) {
     $node = node_load($nid);
 
     $current_node_date_value = $node->field_ding_event_date['und'][0]['value'];
-    $date_object = date_create_from_format(
-      'Y-m-d H:i:s',
-      $current_node_date_value
+    $date_object = date_create_from_format('Y-m-d H:i:s', $current_node_date_value
     );
     $current_node_date = $date_object->format('Y-m-d');
 
@@ -245,13 +244,13 @@ function kultur_events_views_query_alter(&$view, &$query) {
       $queried_date = date('Y-m-d');
     }
 
-    $date_condition = array(
+    $date_condition = [
       'field' => "DATE_FORMAT(ADDTIME(field_data_field_ding_event_date.field_ding_event_date_value, SEC_TO_TIME(7200)), '%Y-%m-%d') <= :node_between_date_filter AND DATE_FORMAT(ADDTIME(field_data_field_ding_event_date.field_ding_event_date_value2, SEC_TO_TIME(7200)), '%Y-%m-%d') >= :node_between_date_filter",
-      'value' => array(
+      'value' => [
         ':node_between_date_filter' => $queried_date,
-      ),
+      ],
       'operator' => 'formula',
-    );
+    ];
 
     // Condition for fetching events with same date as parent node.
     $query->where[1]['conditions'][] = $date_condition;
@@ -265,30 +264,39 @@ function kultur_events_views_query_alter(&$view, &$query) {
     }
 
     $alias = $query->add_table('field_data_field_ding_event_date');
-    $date_condition = array(
+    $date_condition = [
       'field' => "DATE_FORMAT(ADDTIME($alias.field_ding_event_date_value, SEC_TO_TIME(10800)), '%Y-%m-%d') $operand :field_data_field_ding_event_date_field_ding_event_date_value",
-      'value' => array(
+      'value' => [
         ':field_data_field_ding_event_date_field_ding_event_date_value' => $date,
-      ),
+      ],
       'operator' => 'formula',
-    );
+    ];
 
     // Condition for fetching events with same date as parent node.
     $query->where[1]['conditions'][] = $date_condition;
 
     // Filter events by other libraries.
-    if ($_GET['og_group_ref_target_id_entityreference_filter'][0] == 'other') {
-      $other_queue = nodequeue_load_queue_by_name('other_kultur_libraries');
-      $other_sub_queue = nodequeue_load_subqueues_by_queue($other_queue->qid);
-      $other_sub_queue = reset($other_sub_queue);
-      $other_libraries = _kultur_calendar_get_libraries($other_sub_queue);
 
-      $alias = $query->add_table('og_membership');
-      $query->where[1]['conditions'][] = array(
-        'field' => "$alias.gid",
-        'operator' => 'IN',
-        'value' => $other_libraries
-      );
+    if ($_GET['og_group_ref_target_id_entityreference_filter']) {
+      $queue = nodequeue_load_queue_by_name('kultur_libraries');
+      $sub_queue = nodequeue_load_subqueues_by_queue($queue->qid);
+      $sub_queue = reset($sub_queue);
+      $libraries = _kultur_calendar_get_libraries($sub_queue);
+
+      $arg = reset($_GET['og_group_ref_target_id_entityreference_filter']);
+      if ($arg == 'other' || !in_array($arg, $libraries)) {
+        $other_queue = nodequeue_load_queue_by_name('other_kultur_libraries');
+        $other_sub_queue = nodequeue_load_subqueues_by_queue($other_queue->qid);
+        $other_sub_queue = reset($other_sub_queue);
+        $other_libraries = _kultur_calendar_get_libraries($other_sub_queue);
+
+        $alias = $query->add_table('og_membership');
+        $query->where[1]['conditions'][] = [
+          'field' => "$alias.gid",
+          'operator' => 'IN',
+          'value' => $other_libraries,
+        ];
+      }
     }
   }
 }
@@ -332,10 +340,7 @@ function kultur_events_preprocess_views_view(&$variables) {
     $entity = node_load($nid);
     $date_field = field_get_items('node', $entity, 'field_ding_event_date');
 
-    $date = new DateObject(
-      $date_field[0]['value'],
-      $date_field[0]['timezone_db'],
-      date_type_format($date_field[0]['date_type'])
+    $date = new DateObject($date_field[0]['value'], $date_field[0]['timezone_db'], date_type_format($date_field[0]['date_type'])
     );
 
     $current_date = new DateTime();
@@ -348,18 +353,18 @@ function kultur_events_preprocess_views_view(&$variables) {
       $timestamp = $current_date->getTimestamp();
     }
 
-    $options = array(
+    $options = [
       '#theme' => 'calendar_header',
-      '#date' => array(
+      '#date' => [
         'day' => format_date($timestamp, 'custom', 'j'),
         'month' => format_date($timestamp, 'custom', 'M'),
         'weekday' => format_date($timestamp, 'custom', 'D'),
         'year' => format_date($timestamp, 'custom', 'Y'),
-      ),
+      ],
       '#timestamp' => $timestamp,
       '#timezone' => '',
       '#today' => date('j.M.D') == date('j.M.D', $timestamp) ? TRUE : FALSE,
-    );
+    ];
 
     $variables['title'] = '<div class="event-list-leaf">';
     $variables['title'] .= theme('calendar_header', $options);
@@ -382,12 +387,12 @@ function kultur_events_preprocess_views_view(&$variables) {
 function kultur_events_preprocess_calendar_header(&$variables) {
   $timestamp = $variables['timestamp'];
 
-  $variables['date'] = array(
+  $variables['date'] = [
     'day' => format_date($timestamp, 'custom', 'j'),
     'month' => format_date($timestamp, 'custom', 'M'),
     'weekday' => format_date($timestamp, 'custom', 'D'),
     'year' => format_date($timestamp, 'custom', 'Y'),
-  );
+  ];
 
   $variables['today'] = date('j.M.D') == date('j.M.D', $timestamp) ? TRUE : FALSE;
 }
