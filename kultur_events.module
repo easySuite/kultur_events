@@ -276,26 +276,31 @@ function kultur_events_views_query_alter(&$view, &$query) {
     $query->where[1]['conditions'][] = $date_condition;
 
     // Filter events by other libraries.
-
     if ($_GET['og_group_ref_target_id_entityreference_filter']) {
-      $queue = nodequeue_load_queue_by_name('kultur_libraries');
-      $sub_queue = nodequeue_load_subqueues_by_queue($queue->qid);
-      $sub_queue = reset($sub_queue);
-      $libraries = _kultur_calendar_get_libraries($sub_queue);
+      $other_queue = nodequeue_load_queue_by_name('other_kultur_libraries');
+      $other_sub_queue = nodequeue_load_subqueues_by_queue($other_queue->qid);
+      $other_sub_queue = reset($other_sub_queue);
+      $other_libraries = _kultur_calendar_get_libraries($other_sub_queue);
 
       $arg = reset($_GET['og_group_ref_target_id_entityreference_filter']);
-      if ($arg == 'other' || !in_array($arg, $libraries)) {
-        $other_queue = nodequeue_load_queue_by_name('other_kultur_libraries');
-        $other_sub_queue = nodequeue_load_subqueues_by_queue($other_queue->qid);
-        $other_sub_queue = reset($other_sub_queue);
-        $other_libraries = _kultur_calendar_get_libraries($other_sub_queue);
-
-        $alias = $query->add_table('og_membership');
-        $query->where[1]['conditions'][] = [
-          'field' => "$alias.gid",
-          'operator' => 'IN',
-          'value' => $other_libraries,
-        ];
+      $args = $_GET['og_group_ref_target_id_entityreference_filter'];
+      if ($arg == 'other' || !empty(array_intersect($args, $other_libraries))) {
+        $has_membership = FALSE;
+        foreach ($query->where[1]['conditions'] as &$condition) {
+          if ($condition['field'] == 'og_membership.gid') {
+            $condition['value'] = array_merge($condition['value'], $other_libraries);
+            $has_membership = TRUE;
+            break;
+          }
+        }
+        if (!$has_membership) {
+          $alias = $query->add_table('og_membership');
+          $query->where[1]['conditions'][] = [
+            'field' => "$alias.gid",
+            'operator' => 'IN',
+            'value' => $other_libraries,
+          ];
+        }
       }
     }
   }
