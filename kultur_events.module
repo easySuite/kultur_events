@@ -327,16 +327,19 @@ function kultur_events_views_pre_execute(&$view) {
  * @TODO: Make this processing more gracefully.
  */
 function kultur_events_preprocess_views_view(&$variables) {
-  $active_domain = FALSE;
+  $active_domain = TRUE;
+  if (module_exists('domain')) {
+    $active_domain = FALSE;
 
-  $current_domain = domain_get_domain();
-  if ($current_domain['machine_name'] == 'kulturoen_dk') {
-    $active_domain = TRUE;
-  }
+    $current_domain = domain_get_domain();
+    if ($current_domain['machine_name'] == 'kulturoen_dk') {
+      $active_domain = TRUE;
+    }
 
-  // Hidding "Related events" view on Kulturoen node.
-  if ($variables['view']->current_display == 'ding_event_list_same_tag' && $active_domain) {
-    unset($variables['view']->result);
+    // Hidding "Related events" view on Kulturoen node.
+    if ($variables['view']->current_display == 'ding_event_list_same_tag' && $active_domain) {
+      unset($variables['view']->result);
+    }
   }
 
   // Display or hide "Same date".
